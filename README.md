@@ -12,7 +12,7 @@
 
 龙芯版本已经包含龙芯官方sysroot、llvm、补丁包。
 
-本项目源码包适合在 X86 架构系统上交叉编译 arm64/loong64（新世界） 的 Chromium。
+本项目源码包适合在 X86 架构系统上交叉编译 arm64/loong64（新世界） 的 Chromium，也可以编译面向兆芯和海光以及 Intel 和 AMD 的 Chromium。
 
 构建系统可选 UOS V20、deepin v25、Ubuntu 24.04。理论上其他 Linux 发行版也可以，但未经验证。如果发现构建问题，欢迎提 issue。
 
@@ -135,6 +135,88 @@ gn gen out/Release --args='
 ```bash
 autoninja -C out/Release chrome
 ```
+
+### 编译 loong64 架构 Chromium
+
+龙芯公司提供的 patch 中已经包含了构建脚本，直接运行脚本就可以：
+```
+export RUSTC_BOOTSTRAP=1
+./build/cross-build.sh loongarch64 
+```
+
+### deepin v25/UOS v25 构建问题
+
+1. 交叉编译 loong64 架构 Chromium，出现如下错误：
+
+```
+python3 /work/Downloads/chromium-full-src-126.0.6478.182-linux-loong64/src/build/config/linux/pkg-config.py -s /work/Downloads/chromium-full-src-126.0.6478.182-linux-loong64/src/build/linux/debian_bullseye_loongarch64-sysroot -a loong64 xkbcommon
+Traceback (most recent call last):
+File "/work/Downloads/chromium-full-src-126.0.6478.182-linux-loong64/src/build/config/linux/pkg-config.py", line 247, in <module>
+sys.exit(main())
+^^^^^^
+File "/work/Downloads/chromium-full-src-126.0.6478.182-linux-loong64/src/build/config/linux/pkg-config.py", line 142, in main
+prefix = GetPkgConfigPrefixToStrip(options, args)
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+File "/work/Downloads/chromium-full-src-126.0.6478.182-linux-loong64/src/build/config/linux/pkg-config.py", line 80, in GetPkgConfigPrefixToStrip
+prefix = subprocess.check_output([options.pkg_config,
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+File "/usr/lib/python3.12/subprocess.py", line 466, in check_output
+return run(*popenargs, stdout=PIPE, timeout=timeout, check=True,
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+File "/usr/lib/python3.12/subprocess.py", line 571, in run
+raise CalledProcessError(retcode, process.args,
+subprocess.CalledProcessError: Command '['pkg-config', '--variable=prefix', 'xkbcommon']' returned non-zero exit status 1.
+```
+
+解决方案：
+
+修改 src/build/config/linux/pkg-config.py 脚本的 SetConfigPath(options) 函数，增加一行：
+
+```
+libdir += ':' + sysroot + '/usr/lib64/pkgconfig'
+```
+
+2. 出现如下错误：
+
+```
+[6782/9308] ACTION //tools/v8_context_snapshot:generate_v8_context_snapshot(//build/toolchain/linux:clang_x64_v8_loong64)
+FAILED: v8_context_snapshot.bin 
+python3 ../../build/gn_run_binary.py ./clang_x64_v8_loong64/v8_context_snapshot_generator --output_file=v8_context_snapshot.bin
+././clang_x64_v8_loong64/v8_context_snapshot_generator: error while loading shared libraries: libffi.so.7: cannot open shared object file: No such file or directory
+./clang_x64_v8_loong64/v8_context_snapshot_generator failed with exit code 127
+```
+
+解决方案：从源码编译 `libffi-3.3`（对应 soname libffi.so.7）
+
+```
+wget https://github.com/libffi/libffi/releases/download/v3.3/libffi-3.3.tar.gz
+tar -xf libffi-3.3.tar.gz
+cd libffi-3.3
+./configure --prefix=/usr/local/libffi7
+make -j$(nproc)
+sudo make install
+# 添加到动态链接器
+echo "/usr/local/libffi7/lib" | sudo tee /etc/ld.so.conf.d/libffi7.conf
+sudo ldconfig
+ldconfig -p | grep libffi.so.7
+```
+
+3. 编译 blink 时出现错误：
+
+```
+gen/third_party/blink/renderer/platform/color_data.cc:242:7: error: fallthrough annotation does not directly precede switch label
+  242 |       [[fallthrough]];
+      |       ^
+```
+
+解决方案：修改 src/third_party/blink/renderer/build/scripts/gperf.py 脚本，将
+
+```
+gperf_output = gperf_output.replace('/*FALLTHROUGH*/',
+                                            '  [[fallthrough]];')
+``
+
+这两行注释掉。
 
 ## 项目与 Chromium 的关系
 
