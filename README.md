@@ -8,11 +8,11 @@
 
 * x86: 兆芯、海光
 * arm64: 飞腾、华为麒麟、瑞芯微等
-* loongarch64: 龙芯
+* loongarch64: 龙芯（新世界 loong64 / 旧世界 la64）
 
 龙芯版本已经包含龙芯官方sysroot、llvm、补丁包。
 
-本项目源码包适合在 X86 架构系统上交叉编译 arm64/loong64（新世界） 的 Chromium，也可以编译面向兆芯和海光以及 Intel 和 AMD 的 Chromium。
+本项目源码包适合在 X86 架构系统上交叉编译 arm64/loong64（新世界）/la64（旧世界）的 Chromium，也可以编译面向兆芯和海光以及 Intel 和 AMD 的 Chromium。
 
 构建系统可选 UOS V20、deepin v25、Ubuntu 24.04。理论上其他 Linux 发行版也可以，但未经验证。如果发现构建问题，欢迎提 issue。
 
@@ -58,18 +58,26 @@ chromium-full-src-140.0.7339.82-linux-arm64.tar.zst
 
 该版本面向 Linux ARM64 Chromium 的移植和构建。
 
-### loong64
+### loong64 / la64
 
-loong64 不是 Chromium 官方支持的目标架构，Chromium 官方不提供对应的 Sysroot 和 Clang/LLVM 工具链。
+loongarch64 不是 Chromium 官方支持的目标架构，Chromium 官方不提供对应的 Sysroot 和 Clang/LLVM 工具链。
 
-因此 loong64 架构的源码包使用 Loongnix 提供的构建资源：Sysroot、Toolchain 和 Patch。
+因此 loongarch64 架构的源码包使用 Loongnix 提供的构建资源：Sysroot、Toolchain 和 Patch。
 
-目前支持的版本（新世界）：
+龙芯新旧世界在 ABI 层面存在区别（3a5000/3a6000 处理器都支持，但只能是其中一种），可以通过 `readelf -h a.out` 查看输出中 Flags 字段判别：`0x3` 表示旧世界，`0x43` 表示新世界。源码包架构标识：
 
-| Chromium 版本 | Sysroot | LLVM | Patch |
-| --- | --- | --- | --- |
-| 126.0.6478.x | [debian_bullseye_loongarch64-sysroot.tar.bz2](http://ftp.loongnix.cn/browser/build/sysroot/debian_bullseye_loongarch64-sysroot.tar.bz2) | [Release+Asserts-126.tar.bz2](http://ftp.loongnix.cn/browser/build/toolchain/Release+Asserts-126.tar.bz2) | [chromium126 patch](https://github.com/loongson/chromium/raw/loongarch-patches/chromium126/0001-la64-cross-CH126-Add-loongarch-build-support-for-old-new-w.patch) |
-| 150.0.7871.211 | [debian_bullseye_loongarch64-sysroot.tar.bz2](http://ftp.loongnix.cn/browser/build/sysroot/debian_bullseye_loongarch64-sysroot.tar.bz2) | [Release+Asserts-150.tar.bz2](http://ftp.loongnix.cn/browser/build/toolchain/Release+Asserts-150.tar.bz2) | [chromium150 patch](https://github.com/loongson/chromium/raw/loongarch-patches/chromium150/0001-la64-cross-CH150-Add-loongarch-build-support-for-old-new-w.patch) |
+* `loong64`：新世界（new world），工具链替换 `third_party/llvm-build/Release+Asserts`
+* `la64`：旧世界（old world），LLVM 20 与 Rust 交叉工具链打包在包内 `opt/` 目录（patch 和 `build/cross-build.sh` 硬编码 `/opt/` 路径，构建前需复制到 `/opt/`）
+
+同一个适配 patch 同时覆盖新旧世界，通过 GN 参数 `use_nw` 区分。
+
+目前支持的版本：
+
+| 世界 | Chromium 版本 | Sysroot | LLVM | Patch |
+| --- | --- | --- | --- | --- |
+| 新世界 (loong64) | 126.0.6478.x | [debian_bullseye_loongarch64-sysroot.tar.bz2](http://ftp.loongnix.cn/browser/build/sysroot/debian_bullseye_loongarch64-sysroot.tar.bz2) | [Release+Asserts-126.tar.bz2](http://ftp.loongnix.cn/browser/build/toolchain/Release+Asserts-126.tar.bz2) | [chromium126 patch](https://github.com/loongson/chromium/raw/loongarch-patches/chromium126/0001-la64-cross-CH126-Add-loongarch-build-support-for-old-new-w.patch) |
+| 新世界 (loong64) | 150.0.7871.211 | [debian_bullseye_loongarch64-sysroot.tar.bz2](http://ftp.loongnix.cn/browser/build/sysroot/debian_bullseye_loongarch64-sysroot.tar.bz2) | [Release+Asserts-150.tar.bz2](http://ftp.loongnix.cn/browser/build/toolchain/Release+Asserts-150.tar.bz2) | [chromium150 patch](https://github.com/loongson/chromium/raw/loongarch-patches/chromium150/0001-la64-cross-CH150-Add-loongarch-build-support-for-old-new-w.patch) |
+| 旧世界 (la64) | 150.0.7871.211 | [debian_bullseye_loong64-sysroot.tar.bz2](http://ftp.loongnix.cn/browser/build/sysroot/debian_bullseye_loong64-sysroot.tar.bz2) | [llvm-toolchain_20.1.8-1_amd64-linux-gnu_debian-10.tar.gz](http://ftp.loongnix.cn/toolchain/llvm/llvm20/llvm-toolchain_20.1.8-1_amd64-linux-gnu_debian-10.tar.gz)（另含 [rust-1.92.0-nightly-cross.tar.bz2](http://ftp.loongnix.cn/browser/build/toolchain/rust-1.92.0-nightly-cross.tar.bz2)） | [chromium150 patch](https://github.com/loongson/chromium/raw/loongarch-patches/chromium150/0001-la64-cross-CH150-Add-loongarch-build-support-for-old-new-w.patch) |
 
 资源来源：[loongson/chromium loongarch-patches 分支](https://github.com/loongson/chromium/tree/loongarch-patches)。
 
@@ -145,17 +153,35 @@ gn gen out/Release --args='
 autoninja -C out/Release chrome
 ```
 
-### 编译 loong64 架构 Chromium
+### 编译 loong64（新世界）架构 Chromium
 
 龙芯公司提供的 patch 中已经包含了构建脚本，直接运行脚本就可以：
 ```
-export RUSTC_BOOTSTRAP=1
 ./build/cross-build.sh loongarch64 
 ```
 
 > 126 及之后版本支持参数配置新旧世界兼容构建（`use_nw`），详见
 > [loongson/chromium loongarch-patches](https://github.com/loongson/chromium/tree/loongarch-patches)
 > 对应 chromiumXXX 目录中的 README.md。
+
+### 编译 la64（旧世界）架构 Chromium
+
+旧世界使用 Loongnix 提供的 LLVM 20 工具链和 Rust 交叉工具链，二者已打包在源码包的 `opt/` 目录下（patch 的 `build/config/clang/clang.gni` 和 `build/cross-build.sh` 硬编码了 `/opt/` 路径）。
+
+构建前先将工具链复制到 `/opt/`：
+
+```bash
+sudo cp -r chromium-full-src-150.0.7871.211-linux-la64/opt/. /opt/
+```
+
+然后运行 patch 中包含的构建脚本：
+
+```bash
+export RUSTC_BOOTSTRAP=1
+cd chromium-full-src-150.0.7871.211-linux-la64/src
+./build/cross-build.sh la64
+autoninja -C out/la64_cross chrome
+```
 
 ### deepin v25/UOS v25 构建问题
 

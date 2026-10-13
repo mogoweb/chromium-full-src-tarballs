@@ -7,12 +7,12 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Chromium version (e.g. 140.0.7339.82). Leave empty for latest stable. loong64 requires 126.x or 150.x.'
+        description: 'Chromium version (e.g. 140.0.7339.82). Leave empty for latest stable. loong64 (new world) requires 126.x or 150.x; la64 (old world) requires 150.x.'
         required: false
         default: ''
         type: string
       arch:
-        description: 'Target architecture'
+        description: 'Target architecture (loong64 = LoongArch64 new world, la64 = LoongArch64 old world)'
         required: true
         default: 'arm64'
         type: choice
@@ -20,6 +20,7 @@ on:
           - arm64
           - amd64
           - loong64
+          - la64
   push:
     tags:
       - 'chromium-*'
@@ -107,16 +108,23 @@ jobs:
             exit 1
           fi
           case "${arch}" in
-            arm64|amd64|loong64) ;;
+            arm64|amd64|loong64|la64) ;;
             *) echo "::error::Invalid architecture: ${arch}"; exit 1 ;;
           esac
 
-          # loong64 is only available for the Loongnix port versions
+          # LoongArch64 is only available for the Loongnix port versions;
+          # loong64 = new world, la64 = old world
           case "${arch}" in
             loong64)
               case "${version%%.*}" in
                 126|150) ;;
-                *) echo "::error::loong64 requires Chromium 126.x or 150.x, got ${version}"; exit 1 ;;
+                *) echo "::error::loong64 (new world) requires Chromium 126.x or 150.x, got ${version}"; exit 1 ;;
+              esac
+              ;;
+            la64)
+              case "${version%%.*}" in
+                150) ;;
+                *) echo "::error::la64 (old world) requires Chromium 150.x, got ${version}"; exit 1 ;;
               esac
               ;;
           esac
@@ -179,19 +187,48 @@ jobs:
             echo "### Cross compile (x86_64 host -> linux/${arch})"
             echo
             echo '```bash'
-            echo "# 1. Host apt deps (not part of the tarball), e.g. Ubuntu 22.04:"
-            echo "sudo ${pkg}/src/build/install-build-deps.sh --no-chromeos-fonts"
-            echo
-            echo "# 2. Generate build config"
-            echo "cd ${pkg}/src"
-            echo "gn gen out/Release --args='target_os=\"linux\" target_cpu=\"${arch}\" is_debug=false'"
-            echo
-            echo "# 3. Build"
-            echo "autoninja -C out/Release chrome"
+            if [ "${arch}" = "loong64" ]; then
+              echo "# 1. Host apt deps (not part of the tarball), e.g. Ubuntu 22.04:"
+              echo "sudo ${pkg}/src/build/install-build-deps.sh --no-chromeos-fonts"
+              echo
+              echo "# 2. Generate build config (new world, out/la64_cross-new)"
+              echo "cd ${pkg}/src"
+              echo "./build/cross-build.sh loongarch64"
+              echo
+              echo "# 3. Build"
+              echo "autoninja -C out/la64_cross-new chrome"
+            elif [ "${arch}" = "la64" ]; then
+              echo "# 1. Host apt deps (not part of the tarball), e.g. Ubuntu 22.04:"
+              echo "sudo ${pkg}/src/build/install-build-deps.sh --no-chromeos-fonts"
+              echo
+              echo "# 2. Install the packaged old-world toolchains to /opt (hard-coded paths)"
+              echo "sudo cp -r ${pkg}/opt/. /opt/"
+              echo
+              echo "# 3. Generate build config (old world, out/la64_cross)"
+              echo "cd ${pkg}/src"
+              echo "export RUSTC_BOOTSTRAP=1"
+              echo "./build/cross-build.sh la64"
+              echo
+              echo "# 4. Build"
+              echo "autoninja -C out/la64_cross chrome"
+            else
+              echo "# 1. Host apt deps (not part of the tarball), e.g. Ubuntu 22.04:"
+              echo "sudo ${pkg}/src/build/install-build-deps.sh --no-chromeos-fonts"
+              echo
+              echo "# 2. Generate build config"
+              echo "cd ${pkg}/src"
+              echo "gn gen out/Release --args='target_os=\"linux\" target_cpu=\"${arch}\" is_debug=false'"
+              echo
+              echo "# 3. Build"
+              echo "autoninja -C out/Release chrome"
+            fi
             echo '```'
             echo
             echo "Notes:"
             echo "- Sysroots for amd64, i386 and ${arch} are packaged; the prebuilt Clang/LLVM and Rust toolchains run on x86_64 hosts"
+            if [ "${arch}" = "la64" ]; then
+              echo "- The old-world LLVM 20 and Rust cross toolchains are packaged under opt/ and must be copied to /opt before building (hard-coded paths)"
+            fi
             echo "- PGO profiles (Chrome linux + V8) are pre-downloaded so offline builds resolve them without network access"
             echo "- If PGO causes issues on ${arch}, set \`chrome_pgo_phase=0\` in gn args"
             echo '```'
