@@ -16,9 +16,11 @@
 #   package_chromium_full.sh 150.0.7871.211 loong64
 #
 # Environment:
-#   ZSTD_LEVEL     zstd compression level (default: 6)
-#   SPLIT_PART_SZ  split part size (default: 1900M, below the 2GiB GitHub
-#                  Release per-file limit)
+#   ZSTD_LEVEL            zstd compression level (default: 6)
+#   SPLIT_PART_SZ         split part size (default: 1900M, below the 2GiB GitHub
+#                         Release per-file limit)
+#   DOWNLOAD_TIMEOUT_SECS per-attempt curl timeout for downloads (default: 14400)
+#   DOWNLOAD_RETRIES      download attempts before giving up (default: 5)
 
 base=$(cd "$(dirname $0)" && pwd)
 source "${base}/logging.sh" || exit
@@ -28,6 +30,8 @@ umask 022
 
 SPLIT_PART_SZ="${SPLIT_PART_SZ:-1900M}"
 ZSTD_LEVEL="${ZSTD_LEVEL:-6}"
+DOWNLOAD_TIMEOUT_SECS="${DOWNLOAD_TIMEOUT_SECS:-14400}"
+DOWNLOAD_RETRIES="${DOWNLOAD_RETRIES:-5}"
 PGO_GS_URL_BASE="chromium-optimization-profiles/pgo_profiles"
 
 # LoongArch64 (loong64) is not supported by upstream Chromium: there is no
@@ -154,9 +158,7 @@ apply_target_patches() {
 			patch_file=$(loong64_patch_file "${major}")
 
 			clog "Downloading LoongArch64 adaptation patch (chromium${major})"
-			curl --fail --location --retry 3 --retry-delay 5 --max-time 600 \
-				--no-progress-meter -o "${patch_file}" "$(loong64_patch_url "${major}")" ||
-				die "Failed to download $(loong64_patch_url "${major}")"
+			download_file "$(loong64_patch_url "${major}")" "${patch_file}"
 
 			clog "Applying ${patch_file} to src"
 			pushd src &> /dev/null || die "Failed to enter src directory"
@@ -206,6 +208,37 @@ download_v8_pgo_profiles() {
 	fi
 }
 
+# This function downloads a file with resumable retry logic. Large files
+# (e.g. the Loongnix toolchain tarballs) are often cut off mid-transfer by
+# the server (curl error 18), which curl's built-in --retry does not retry.
+# Failed attempts are resumed with "curl -C -" instead of restarting, so only
+# the remaining bytes are re-downloaded.
+#
+# Usage:
+#   download_file URL DEST_PATH
+#
+download_file() {
+	local url="${1}"
+	local output="${2}"
+	local attempt=1
+
+	until curl --fail --location \
+		--retry 3 --retry-delay 5 \
+		--connect-timeout 60 \
+		--max-time "${DOWNLOAD_TIMEOUT_SECS}" \
+		-sS \
+		-C - -o "${output}" "${url}"
+	do
+		local status=$?
+		if [ "${attempt}" -ge "${DOWNLOAD_RETRIES}" ]; then
+			die "Failed to download ${url} after ${attempt} attempts (last exit code: ${status})"
+		fi
+		attempt=$((attempt + 1))
+		cwarn "Download of ${url} interrupted (curl exit ${status}), resuming (attempt ${attempt}/${DOWNLOAD_RETRIES})"
+		sleep 5
+	done
+}
+
 # This function downloads a tarball and extracts it into a directory.
 # Both .tar.bz2 and .tar.gz archives are supported.
 #
@@ -220,10 +253,7 @@ download_and_extract() {
 	tmp_dir=$(mktemp -d) || die "Failed to create a temporary download directory"
 	local archive="${tmp_dir}/$(basename "${url}")"
 
-	clog "Downloading ${url}"
-	curl --fail --location --retry 3 --retry-delay 5 --max-time 7200 \
-		--no-progress-meter -o "${archive}" "${url}" ||
-		die "Failed to download ${url}"
+	download_file "${url}" "${archive}"
 
 	clog "Extracting $(basename "${archive}") into ${dest}"
 	mkdir -p "${dest}" || die "Failed to create ${dest}"
