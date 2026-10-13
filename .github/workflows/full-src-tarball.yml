@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: 'Chromium version (e.g. 140.0.7339.82). Leave empty for latest stable. loong64 requires 126.x.'
+        description: 'Chromium version (e.g. 140.0.7339.82). Leave empty for latest stable. loong64 requires 126.x or 150.x.'
         required: false
         default: ''
         type: string
@@ -111,11 +111,15 @@ jobs:
             *) echo "::error::Invalid architecture: ${arch}"; exit 1 ;;
           esac
 
-          # loong64 is only available as a Chromium 126 port
-          if [ "${arch}" = "loong64" ] && [ "${version%%.*}" != "126" ]; then
-            echo "::error::loong64 requires Chromium 126.x, got ${version}"
-            exit 1
-          fi
+          # loong64 is only available for the Loongnix port versions
+          case "${arch}" in
+            loong64)
+              case "${version%%.*}" in
+                126|150) ;;
+                *) echo "::error::loong64 requires Chromium 126.x or 150.x, got ${version}"; exit 1 ;;
+              esac
+              ;;
+          esac
 
           # Verify the tag exists upstream before the long sync
           code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 30 \

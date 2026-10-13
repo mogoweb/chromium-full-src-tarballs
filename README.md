@@ -64,6 +64,15 @@ loong64 不是 Chromium 官方支持的目标架构，Chromium 官方不提供�
 
 因此 loong64 架构的源码包使用 Loongnix 提供的构建资源：Sysroot、Toolchain 和 Patch。
 
+目前支持的版本（新世界）：
+
+| Chromium 版本 | Sysroot | LLVM | Patch |
+| --- | --- | --- | --- |
+| 126.0.6478.x | [debian_bullseye_loongarch64-sysroot.tar.bz2](http://ftp.loongnix.cn/browser/build/sysroot/debian_bullseye_loongarch64-sysroot.tar.bz2) | [Release+Asserts-126.tar.bz2](http://ftp.loongnix.cn/browser/build/toolchain/Release+Asserts-126.tar.bz2) | [chromium126 patch](https://github.com/loongson/chromium/raw/loongarch-patches/chromium126/0001-la64-cross-CH126-Add-loongarch-build-support-for-old-new-w.patch) |
+| 150.0.7871.211 | [debian_bullseye_loongarch64-sysroot.tar.bz2](http://ftp.loongnix.cn/browser/build/sysroot/debian_bullseye_loongarch64-sysroot.tar.bz2) | [Release+Asserts-150.tar.bz2](http://ftp.loongnix.cn/browser/build/toolchain/Release+Asserts-150.tar.bz2) | [chromium150 patch](https://github.com/loongson/chromium/raw/loongarch-patches/chromium150/0001-la64-cross-CH150-Add-loongarch-build-support-for-old-new-w.patch) |
+
+资源来源：[loongson/chromium loongarch-patches 分支](https://github.com/loongson/chromium/tree/loongarch-patches)。
+
 ## 恢复完整源码包
 
 下载所有分片后，可以使用 `cat` 合并：
@@ -143,6 +152,10 @@ autoninja -C out/Release chrome
 export RUSTC_BOOTSTRAP=1
 ./build/cross-build.sh loongarch64 
 ```
+
+> 126 及之后版本支持参数配置新旧世界兼容构建（`use_nw`），详见
+> [loongson/chromium loongarch-patches](https://github.com/loongson/chromium/tree/loongarch-patches)
+> 对应 chromiumXXX 目录中的 README.md。
 
 ### deepin v25/UOS v25 构建问题
 

@@ -13,6 +13,7 @@
 # Example:
 #   package_chromium_full.sh 140.0.7339.82 arm64
 #   package_chromium_full.sh 126.0.6478.126 loong64
+#   package_chromium_full.sh 150.0.7871.211 loong64
 #
 # Environment:
 #   ZSTD_LEVEL     zstd compression level (default: 6)
@@ -31,12 +32,38 @@ PGO_GS_URL_BASE="chromium-optimization-profiles/pgo_profiles"
 
 # LoongArch64 (loong64) is not supported by upstream Chromium: there is no
 # official sysroot or Clang/LLVM toolchain for it. Both are provided by
-# Loongnix, and only for Chromium 126.
-LOONG64_CHROMIUM_MAJOR_VERSION="126"
+# Loongnix (https://github.com/loongson/chromium, loongarch-patches branch),
+# only for the Chromium versions listed below. The "new world" (新世界)
+# resources share one sysroot, and the toolchain and adaptation patch are
+# named per Chromium major version.
+LOONG64_SUPPORTED_MAJOR_VERSIONS="126 150"
 LOONG64_SYSROOT_URL="http://ftp.loongnix.cn/browser/build/sysroot/debian_bullseye_loongarch64-sysroot.tar.bz2"
-LOONG64_TOOLCHAIN_URL="http://ftp.loongnix.cn/browser/build/toolchain/Release+Asserts-126.tar.bz2"
-LOONG64_PATCH_URL="https://github.com/loongson/chromium/raw/loongarch-patches/chromium126/0001-la64-cross-CH126-Add-loongarch-build-support-for-old-new-w.patch"
-LOONG64_PATCH_FILE="0001-la64-cross-CH126-Add-loongarch-build-support-for-old-new-w.patch"
+
+loong64_supported() {
+	local major="${1}"
+	case " ${LOONG64_SUPPORTED_MAJOR_VERSIONS} " in
+		*" ${major} "*) return 0 ;;
+		*) return 1 ;;
+	esac
+}
+
+# Loongnix names the new-world toolchain "Release+Asserts-<major>.tar.bz2"
+loong64_toolchain_url() {
+	local major="${1}"
+	echo "http://ftp.loongnix.cn/browser/build/toolchain/Release+Asserts-${major}.tar.bz2"
+}
+
+# Loongnix names the adaptation patch
+# "chromium<major>/0001-la64-cross-CH<major>-Add-loongarch-build-support-for-old-new-w.patch"
+loong64_patch_url() {
+	local major="${1}"
+	echo "https://github.com/loongson/chromium/raw/loongarch-patches/chromium${major}/0001-la64-cross-CH${major}-Add-loongarch-build-support-for-old-new-w.patch"
+}
+
+loong64_patch_file() {
+	local major="${1}"
+	echo "0001-la64-cross-CH${major}-Add-loongarch-build-support-for-old-new-w.patch"
+}
 
 log_disk() {
 	clog "Disk usage:"
@@ -97,20 +124,24 @@ sync_sources() {
 #
 apply_target_patches() {
 	local arch="${1}"
+	local major="${2}"
 	case "${arch}" in
 		loong64)
-			clog "Downloading LoongArch64 adaptation patch"
-			curl --fail --location --retry 3 --retry-delay 5 --max-time 600 \
-				--no-progress-meter -o "${LOONG64_PATCH_FILE}" "${LOONG64_PATCH_URL}" ||
-				die "Failed to download ${LOONG64_PATCH_URL}"
+			local patch_file
+			patch_file=$(loong64_patch_file "${major}")
 
-			clog "Applying ${LOONG64_PATCH_FILE} to src"
+			clog "Downloading LoongArch64 adaptation patch (chromium${major})"
+			curl --fail --location --retry 3 --retry-delay 5 --max-time 600 \
+				--no-progress-meter -o "${patch_file}" "$(loong64_patch_url "${major}")" ||
+				die "Failed to download $(loong64_patch_url "${major}")"
+
+			clog "Applying ${patch_file} to src"
 			pushd src &> /dev/null || die "Failed to enter src directory"
-			patch -Np1 -i "../${LOONG64_PATCH_FILE}" ||
-				die "Failed to apply ${LOONG64_PATCH_FILE} (is \"patch\" installed?)"
+			patch -Np1 -i "../${patch_file}" ||
+				die "Failed to apply ${patch_file} (is \"patch\" installed?)"
 			popd &> /dev/null || die "Failed to leave src directory"
 
-			rm -f "${LOONG64_PATCH_FILE}"
+			rm -f "${patch_file}"
 			;;
 	esac
 }
@@ -202,11 +233,12 @@ install_target_sysroot() {
 # runhooks so the clang hook cannot overwrite it.
 install_target_toolchain() {
 	local arch="${1}"
+	local major="${2}"
 	case "${arch}" in
 		loong64)
-			clog "Installing loong64 (LoongArch64) Clang/LLVM toolchain from Loongnix"
+			clog "Installing loong64 (LoongArch64) Clang/LLVM toolchain from Loongnix (Release+Asserts-${major})"
 			rm -rf "src/third_party/llvm-build/Release+Asserts"
-			download_and_extract "${LOONG64_TOOLCHAIN_URL}" "src/third_party/llvm-build" ||
+			download_and_extract "$(loong64_toolchain_url "${major}")" "src/third_party/llvm-build" ||
 				die "Failed to install loong64 toolchain"
 			;;
 	esac
@@ -257,6 +289,7 @@ verify_toolchain() {
 generate_manifest() {
 	local version="${1}"
 	local arch="${2}"
+	local major="${3}"
 	local revision sysroots
 	revision=$(git -C src rev-parse HEAD 2> /dev/null || echo "unknown")
 	sysroots=$(find src/build/linux -maxdepth 1 -type d -name "*-sysroot" -printf "  - %f\n" 2> /dev/null | sort)
@@ -303,10 +336,10 @@ EOF
 		cat >> chromium-build-manifest.txt <<EOF
 
 LoongArch64 (loong64):
-- Chromium major version pinned to ${LOONG64_CHROMIUM_MAJOR_VERSION}
+- Chromium major version: ${major} (new world, Loongnix port)
 - Sysroot: ${LOONG64_SYSROOT_URL}
-- Toolchain: ${LOONG64_TOOLCHAIN_URL}
-- Patch: ${LOONG64_PATCH_URL}
+- Toolchain: $(loong64_toolchain_url "${major}")
+- Patch: $(loong64_patch_url "${major}")
 EOF
 	fi
 }
@@ -388,10 +421,12 @@ main() {
 		die "Invalid Chromium version: ${version}"
 	fi
 
-	# LoongArch64 is only available as a Chromium 126 port; there is no sysroot
-	# or toolchain for any other version.
-	if [ "${arch}" = "loong64" ] && [ "${version%%.*}" != "${LOONG64_CHROMIUM_MAJOR_VERSION}" ]; then
-		die "LoongArch64 (loong64) requires Chromium ${LOONG64_CHROMIUM_MAJOR_VERSION}.x, got ${version}"
+	# LoongArch64 is only available for the Loongnix port versions listed in
+	# LOONG64_SUPPORTED_MAJOR_VERSIONS; there is no sysroot or toolchain for
+	# any other version.
+	local major="${version%%.*}"
+	if [ "${arch}" = "loong64" ] && ! loong64_supported "${major}"; then
+		die "LoongArch64 (loong64) requires Chromium ${LOONG64_SUPPORTED_MAJOR_VERSIONS// / or }.x, got ${version}"
 	fi
 
 	# Some Google Python scripts start with "#!/usr/bin/env python"
@@ -419,7 +454,7 @@ main() {
 
 	configure_gclient "${version}"
 	sync_sources
-	apply_target_patches "${arch}"
+	apply_target_patches "${arch}" "${major}"
 	run_hooks
 	#	download_pgo_profiles
 	download_v8_pgo_profiles
@@ -427,9 +462,9 @@ main() {
 	# (src/tools/rust/update_rust.py) during runhooks; verify_toolchain below
 	# fails the run if it is missing.
 	install_target_sysroot "${arch}"
-	install_target_toolchain "${arch}"
+	install_target_toolchain "${arch}" "${major}"
 	verify_toolchain "${arch}"
-	generate_manifest "${version}" "${arch}"
+	generate_manifest "${version}" "${arch}" "${major}"
 	cleanup_before_pack
 
 	popd &> /dev/null || die "Failed to leave ${pkg_name}"
