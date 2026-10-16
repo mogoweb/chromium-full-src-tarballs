@@ -21,6 +21,8 @@
 #                         Release per-file limit)
 #   DOWNLOAD_TIMEOUT_SECS per-attempt curl timeout for downloads (default: 14400)
 #   DOWNLOAD_RETRIES      download attempts before giving up (default: 5)
+#   LOONGNIX_MIRROR_BASE  optional mirror base URL for Loongnix resources
+#                         (tried first; each file expected at <base>/<filename>)
 
 base=$(cd "$(dirname $0)" && pwd)
 source "${base}/logging.sh" || exit
@@ -32,6 +34,7 @@ SPLIT_PART_SZ="${SPLIT_PART_SZ:-1900M}"
 ZSTD_LEVEL="${ZSTD_LEVEL:-6}"
 DOWNLOAD_TIMEOUT_SECS="${DOWNLOAD_TIMEOUT_SECS:-14400}"
 DOWNLOAD_RETRIES="${DOWNLOAD_RETRIES:-5}"
+LOONGNIX_MIRROR_BASE="${LOONGNIX_MIRROR_BASE:-}"
 PGO_GS_URL_BASE="chromium-optimization-profiles/pgo_profiles"
 
 # LoongArch64 (loong64) is not supported by upstream Chromium: there is no
@@ -158,7 +161,7 @@ apply_target_patches() {
 			patch_file=$(loong64_patch_file "${major}")
 
 			clog "Downloading LoongArch64 adaptation patch (chromium${major})"
-			download_file "$(loong64_patch_url "${major}")" "${patch_file}"
+			download_file_any "${patch_file}" "$(loong64_patch_url "${major}")"
 
 			clog "Applying ${patch_file} to src"
 			pushd src &> /dev/null || die "Failed to enter src directory"
@@ -208,11 +211,28 @@ download_v8_pgo_profiles() {
 	fi
 }
 
+# ftp.loongnix.cn is often unreachable from GitHub Actions runners (abroad);
+# the same files are served over HTTPS as well, and an optional mirror base
+# (e.g. a GitHub release of this repo hosting the raw files) can be provided
+# via LOONGNIX_MIRROR_BASE to be tried first. Echo the candidate URLs for a
+# loongnix http:// path, most reliable first.
+loongnix_urls() {
+	local http_url="${1}"
+	local path="${http_url#http://}"
+
+	if [ -n "${LOONGNIX_MIRROR_BASE:-}" ]; then
+		echo "${LOONGNIX_MIRROR_BASE%/}/$(basename "${path}")"
+	fi
+	echo "https://${path}"
+	echo "${http_url}"
+}
+
 # This function downloads a file with resumable retry logic. Large files
 # (e.g. the Loongnix toolchain tarballs) are often cut off mid-transfer by
 # the server (curl error 18), which curl's built-in --retry does not retry.
 # Failed attempts are resumed with "curl -C -" instead of restarting, so only
-# the remaining bytes are re-downloaded.
+# the remaining bytes are re-downloaded. Returns non-zero when all attempts
+# fail, so callers can fall back to mirror URLs.
 #
 # Usage:
 #   download_file URL DEST_PATH
@@ -231,7 +251,8 @@ download_file() {
 	do
 		local status=$?
 		if [ "${attempt}" -ge "${DOWNLOAD_RETRIES}" ]; then
-			die "Failed to download ${url} after ${attempt} attempts (last exit code: ${status})"
+			cerror "Download failed after ${attempt} attempts: ${url} (last exit code: ${status})"
+			return 1
 		fi
 		attempt=$((attempt + 1))
 		cwarn "Download of ${url} interrupted (curl exit ${status}), resuming (attempt ${attempt}/${DOWNLOAD_RETRIES})"
@@ -239,8 +260,29 @@ download_file() {
 	done
 }
 
+# Download OUTPUT from the first URL that succeeds; every URL gets the full
+# resumable retry budget of download_file. Fails only when all URLs fail.
+#
+# Usage:
+#   download_file_any DEST_PATH URL...
+#
+download_file_any() {
+	local output="${1}"
+	shift
+	local url
+
+	for url in "$@"; do
+		if download_file "${url}" "${output}"; then
+			return 0
+		fi
+		cwarn "Trying next source for $(basename "${output}")"
+	done
+	die "Failed to download $(basename "${output}") from any source: ${*}"
+}
+
 # This function downloads a tarball and extracts it into a directory.
-# Both .tar.bz2 and .tar.gz archives are supported.
+# Both .tar.bz2 and .tar.gz archives are supported. The URL is resolved to
+# mirror/HTTPS candidates via loongnix_urls.
 #
 # Usage:
 #   download_and_extract URL DEST_DIR
@@ -253,7 +295,7 @@ download_and_extract() {
 	tmp_dir=$(mktemp -d) || die "Failed to create a temporary download directory"
 	local archive="${tmp_dir}/$(basename "${url}")"
 
-	download_file "${url}" "${archive}"
+	download_file_any "${archive}" $(loongnix_urls "${url}")
 
 	clog "Extracting $(basename "${archive}") into ${dest}"
 	mkdir -p "${dest}" || die "Failed to create ${dest}"

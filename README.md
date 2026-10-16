@@ -81,6 +81,30 @@ loongarch64 不是 Chromium 官方支持的目标架构，Chromium 官方不提�
 
 资源来源：[loongson/chromium loongarch-patches 分支](https://github.com/loongson/chromium/tree/loongarch-patches)。
 
+#### GitHub Actions 网络问题
+
+`ftp.loongnix.cn` 在 GitHub Actions 海外 runner 上经常无法连通（connect timeout）。脚本下载时会依次尝试以下源，任一成功即可：
+
+1. `LOONGNIX_MIRROR_BASE` 镜像（可选）
+2. `https://ftp.loongnix.cn/...`（HTTPS）
+3. `http://ftp.loongnix.cn/...`（HTTP）
+
+推荐在 GitHub 仓库 Release 中托管 Loongnix 资源镜像（建议 tag：`loongnix-resources`，上传对应文件，单文件需小于 2GiB），然后设置仓库变量：
+
+```
+Settings → Secrets and variables → Actions → Variables → New repository variable
+Name:  LOONGNIX_MIRROR_BASE
+Value: https://github.com/mogoweb/chromium-full-src-tarballs/releases/download/loongnix-resources
+```
+
+workflow 会自动读取该变量（`${{ vars.LOONGNIX_MIRROR_BASE }}`），本地运行时也可以通过环境变量传入。
+
+本地或国内环境下载大文件时可调整超时与重试次数：
+
+```bash
+DOWNLOAD_TIMEOUT_SECS=28800 DOWNLOAD_RETRIES=8 ./package_chromium_full.sh 150.0.7871.211 loong64
+```
+
 ## 恢复完整源码包
 
 下载所有分片后，可以使用 `cat` 合并：

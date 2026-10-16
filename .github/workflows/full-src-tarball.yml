@@ -145,6 +145,12 @@ jobs:
 
       - name: Package Chromium full source tarball
         if: steps.resolve.outputs.skip != 'true'
+        env:
+          # Optional: set a repository variable LOONGNIX_MIRROR_BASE pointing
+          # to a mirror of the Loongnix resources (e.g. a GitHub release of
+          # this repo) to be tried before ftp.loongnix.cn, which is often
+          # unreachable from GitHub-hosted runners.
+          LOONGNIX_MIRROR_BASE: ${{ vars.LOONGNIX_MIRROR_BASE }}
         run: |
           ./package_chromium_full.sh \
             "${{ steps.resolve.outputs.version }}" \
